@@ -67,10 +67,13 @@ int main(int argc, char* argv[])
   }
   else if(xev.type == KeyPress)
   {
-   XDestroyWindow(m_display, m_screen);
-   XCloseDisplay(m_display);
-   //exit(0);
-            break;
+	  if(xev.xkey.keycode == XKeysymToKeycode(m_display,XK_F1))
+	  {
+		XDestroyWindow(m_display, m_screen);
+		XCloseDisplay(m_display);
+		//exit(0);
+		break;
+	  }
   }
  }
 
