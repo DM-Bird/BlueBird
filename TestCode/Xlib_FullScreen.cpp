@@ -41,7 +41,7 @@ int main(int argc, char* argv[])
 
  //m_window = XCreateSimpleWindow(m_display, RootWindow(m_display, m_screen),0,0, 640,480,1,BlackPixel(m_display,m_screen),WhitePixel(m_display, m_screen));
  //m_window = XCreateWindow(m_display, RootWindow(m_display, m_screen), 0, 0, window_width, window_height, 2, CopyFromParent, InputOutput, CopyFromParent, theWindowMask, &attr);
- m_window = XCreateWindow(m_display, m_rootWindow, 0, 0, 640, 480, 0, CopyFromParent, InputOutput, CopyFromParent, theWindowMask, &attr);
+ m_window = XCreateWindow(m_display, m_rootWindow, 0, 0, window_width, window_height, 0, CopyFromParent, InputOutput, CopyFromParent, theWindowMask, &attr);
  XSelectInput(m_display, m_window, ExposureMask | KeyPressMask);
  XMapWindow(m_display, m_window);
 
