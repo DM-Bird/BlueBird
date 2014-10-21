@@ -1,0 +1,32 @@
+1、与XServer建立连接
+
+一个使用了X协议的程序，第一步一定需要建立于XServer的连接。下面是XCB中创建与XServer的一个函数，这个函数返回了Display name，如果没有连接成功，则返回NULL。
+如果获取的是NULL，那么display name实际上是环境变量的DISPLAY
+
+XCB中与XServer建立连接的函数：
+xcb_connection_t *xcb_connect (const char *displayname, int *screenp);
+第二个参数返回的是连接使用的屏幕数（这里写的是screen number，我也不知道是几个屏幕的意思还是第几个屏幕……有待验证……）
+返回的结构体是XCB的描述方式，这种描述并不是公开的。
+下面是一个打开连接的例子：
+#include <xcb/xcb.h>
+
+int
+main ()
+{
+  xcb_connection_t *c;
+
+  /* Open the connection to the X server. Use the DISPLAY environment variable as the default display name */
+  c = xcb_connect (NULL, NULL);
+
+  return 0;
+}
+使用void xcb_disconnect (xcb_connection_t *c);函数来关闭与XServer的连接
+
+
+与xlib的比较：
+                                                Comparison Xlib/XCB
+                                     XOpenDisplay ()                                            xcb_connect ()
+                                     XCloseDisplay()                                            xcb_disconnect ()
+
+
+

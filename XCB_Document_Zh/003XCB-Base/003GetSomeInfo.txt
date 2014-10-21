@@ -1,0 +1,57 @@
+当我们创建了一个与XServer的连接之后，我们一定会想要获得一些信息，比如：他又什么样的屏幕，屏幕的大小是多少（应该是分辨率），支持多少位的颜色（黑白还是灰度等级，或者是256色或者更多？）等等等等。我们从一个名字为xcb_screen_t的结构体中获取这些信息：
+
+typedef struct {
+    xcb_window_t   root;
+    xcb_colormap_t default_colormap;
+    uint32_t       white_pixel;
+    uint32_t       black_pixel;
+    uint32_t       current_input_masks;
+    uint16_t       width_in_pixels;
+    uint16_t       height_in_pixels;
+    uint16_t       width_in_millimeters;
+    uint16_t       height_in_millimeters;
+    uint16_t       min_installed_maps;
+    uint16_t       max_installed_maps;
+    xcb_visualid_t root_visual;
+    uint8_t        backing_stores;
+    uint8_t        save_unders;
+    uint8_t        root_depth;
+    uint8_t        allowed_depths_len;
+} xcb_screen_t;
+
+我们可以使用下面这个函数来获取到连接中的第一个屏幕信息：
+xcb_screen_iterator_t xcb_setup_roots_iterator (xcb_setup_t *R);
+
+下面是一个小例子来告诉我们如何使用这个函数：
+#include <stdio.h>
+
+#include <xcb/xcb.h>
+
+int
+main ()
+{
+  xcb_connection_t     *c;
+  xcb_screen_t         *screen;
+  int                   screen_nbr;
+  xcb_screen_iterator_t iter;
+
+  /* Open the connection to the X server. Use the DISPLAY environment variable */
+  c = xcb_connect (NULL, &screen_nbr);
+
+  /* Get the screen #screen_nbr */
+  iter = xcb_setup_roots_iterator (xcb_get_setup (c));
+  for (; iter.rem; --screen_nbr, xcb_screen_next (&iter))
+    if (screen_nbr == 0) {
+      screen = iter.data;
+      break;
+    }
+
+  printf ("\n");
+  printf ("Informations of screen %ld:\n", screen->root);
+  printf ("  width.........: %d\n", screen->width_in_pixels);
+  printf ("  height........: %d\n", screen->height_in_pixels);
+  printf ("  white pixel...: %ld\n", screen->white_pixel);
+  printf ("  black pixel...: %ld\n", screen->black_pixel);
+  printf ("\n");
+
+  return 0;
