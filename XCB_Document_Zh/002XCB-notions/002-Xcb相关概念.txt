@@ -1,0 +1,149 @@
+最初创建xcb库的时候，目的是为了取消应用程序所需要的X协议层。XCB库是一种非常底层、能与XServer通信的库。由于使用的是标准协议，使用XCB创建的client能够与任何的XServer服务通信（当然xlib也是同样如此）。
+现在我们会给出基础XCB概念的简介：
+1、X连接 （The X Connection）           
+    使用XCB主要的概念就是X连接。这是一个代表与已知所给的XServer服务连接的结构体。X连接隐藏掉了从XServer发送过来的消息队列，也同事隐藏掉了我们发送给XServer的正在等待响应的队列。在XCB中，X连接的结构体名称为“xcb_connection_t”，它和Xlib中的Display的概念是相似的。当我们打开一个与XServer的通信连接的时候，XCB库会返回给我们一个指向这个结构体的指针。然后，我们就可以把这个指针用于XCB的所有函数与XServer进行通信了（指向XServer发送消息和从XServer接收消息）。
+2、请求和响应：Xlib杀手（原文为the xlib killers）
+    当我们想要从XServer获取一些信息的时候，我们需要创建一个请求，并且需要请求回应。如果使用xlib，那么这两个任务会自动完成：xlib锁定系统，发送一个请求，等待XServer的回应，然后解除锁定。当我们创建了大量的请求的时候，这种机制会很令人苦恼，因为当我们如果使用同步机制的时候，我们必须等待一个请求的回应之后，才会继续下一个请求，不然系统是阻塞的。举个例子：这有一个使用xlib的N=4的时间线（原文为time-line，这里可能翻译的不够好）的请求/回应，请求和回应（T_round_trip）之间的读写的延迟为5个时间，那么按照时间轴来表示这个所需的时间（T_write/T_read）：
+
+W-----RW-----RW-----RW-----R
+W: Writing request
+-: Stalled, waiting for data
+R: Reading reply
+
+所需总计时间为： N * (T_write + T_round_trip + T_read).
+
+
+如果使用XCB的话，XCB支持异步传输的方式，这种方式下，请求和回应不会被锁定。我们向XServer发送一个请求，XCB会返回给我们一个cookie作为标识。然后我们就可以通过这个标识来获取一个指针，这个指针是指向这个响应的。通过这种方式来使用XCB，我们可以一次性发送大量的请求，然后在我们需要的时候来获取我们想要的信息。这是一个我们通过这种方式来使用XCB的4个请求响应的时间线
+WWWW--RRRR
+所需总计时间为：N * T_write + max (0, T_round_trip - (N-1) * T_write) + N * T_read
+可以看出来，使用这种方式，要比xlib的阻塞的同步方式要快的多。
+
+下面是一段计算分别在xlib和xcb下创建500个atoms所需时间的代码。这段代码展现了xlib的方式，坏的使用xcb的方式（其实这种方式和xlib差不多），还有好的xcb的方式。在我的电脑上，xcb要比xlib快上25倍。
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/time.h>
+
+#include <xcb/xcb.h>
+
+#include <X11/Xlib.h>
+
+double
+get_time(void)
+{
+  struct timeval timev;
+
+  gettimeofday(&timev, NULL);
+
+  return (double)timev.tv_sec + (((double)timev.tv_usec) / 1000000);
+}
+
+int
+main ()
+{
+  xcb_connection_t         *c;
+  xcb_atom_t               *atoms;
+  xcb_intern_atom_cookie_t *cs;
+  char                    **names;
+  int                       count;
+  int                       i;
+  double                    start;
+  double                    end;
+  double                    diff;
+
+  /* Xlib */
+  Display *disp;
+  Atom    *atoms_x;
+  double   diff_x;
+
+  c = xcb_connect (NULL, NULL);
+
+  count = 500;
+  atoms = (xcb_atom_t *)malloc (count * sizeof (atoms));
+  names = (char **)malloc (count * sizeof (char *));
+
+  /* init names */
+  for (i = 0; i < count; ++i) {
+    char buf[100];
+
+    sprintf (buf, "NAME%d", i);
+    names[i] = strdup (buf);
+  }
+
+  /* bad use */
+  start = get_time ();
+
+  for (i = 0; i < count; ++i)
+    atoms[i] = xcb_intern_atom_reply (c,
+                                      xcb_intern_atom (c,
+                                                       0,
+                                                       strlen(names[i]),
+                                                       names[i]),
+                                      NULL)->atom;
+
+  end = get_time ();
+  diff = end - start;
+  printf ("bad use time  : %f\n", diff);
+
+  /* good use */
+  start = get_time ();
+
+  cs = (xcb_intern_atom_cookie_t *) malloc (count * sizeof(xcb_intern_atom_cookie_t));
+  for(i = 0; i < count; ++i)
+    cs[i] = xcb_intern_atom (c, 0, strlen(names[i]), names[i]);
+
+  for(i = 0; i < count; ++i) {
+    xcb_intern_atom_reply_t *r;
+
+    r = xcb_intern_atom_reply(c, cs[i], 0);
+    if(r)
+      atoms[i] = r->atom;
+    free(r);
+  }
+
+  end = get_time ();
+  printf ("good use time : %f\n", end - start);
+  printf ("ratio         : %f\n", diff / (end - start));
+  diff = end - start;
+
+  /* free var */
+  free (atoms);
+  free (cs);
+
+  xcb_disconnect (c);
+
+  /* Xlib */
+  disp = XOpenDisplay (getenv("DISPLAY"));
+
+  atoms_x = (Atom *)malloc (count * sizeof (atoms_x));
+
+  start = get_time ();
+
+  for (i = 0; i < count; ++i)
+    atoms_x[i] = XInternAtom(disp, names[i], 0);
+
+  end = get_time ();
+  diff_x = end - start;
+  printf ("Xlib use time : %f\n", diff_x);
+  printf ("ratio         : %f\n", diff_x / diff);
+
+  free (atoms_x);
+  for (i = 0; i < count; ++i)
+    free (names[i]);
+  free (names);
+
+  XCloseDisplay (disp);
+
+  return 0;
+}
+
+3、xcb的图形环境（The Graphic Context）
+    当我们想要进行各种各样的绘画操作的时候（例如图形和文本等等），我们可以给出详细的参数用来控制如何画出我们想画的东西（前景和背景要使用什么颜色，线要怎么连接，当我们想要绘制文本的时候，要使用怎样的字体等等）。为了避免给每个绘画函数设置上百个参数，xcb使用了一种图形环境的结构体。我们在这个结构体中设置各种各样的绘画选项，然后我们将这个结构体的指针传递给所有的绘画的函数。因为使用了这样的方式，所以我们在使用绘画操作绘制一样的图形的时候实际上是很方便的。在使用的时候，我们需要初始化一个graphical context，然后对这个context进行设置，最后把这个结构体的指针传递给所有的绘画函数。
+需要注意的是：graphical context在xcb的客户端中是没有这个结构体的，他们仅仅是XIDs（这段看的我也糊涂，这是什么东西？原文是they're just XIDs，谁能帮我解释一下XIDs是什么？）xlib在客户端有这个结构体因为他缓存了GC内容，所以它能够避免创建重复冗余的请求，但是xcb却没有这么做。
+
+4、对象句柄（Object handles）
+5、XCB的结构体的内存分配（Memory allocation for XCB structures）
+
+6、事件（Events）
+    Events是一种用于接收从XServer中返回的事件的结构体。xcb支持标准协议中的33中事件。这个结构体包括了接收事件的类型（包括这个事件是从XServer上获取的还是从其他的client上获取的。），同样也包括了与事件相关的数据（例如，这个事件是从哪个屏幕发送过来的，鼠标按键，屏幕某个区域需要重绘等等）。获取事件的数据要依据不同的事件类型使用不同的方法。
